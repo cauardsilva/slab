@@ -1,0 +1,8 @@
+[package]
+name = "slab"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+dotenv = "0.15.0"
+sqlx = "0.8.6"
