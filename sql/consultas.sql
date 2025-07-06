@@ -9,7 +9,7 @@ FROM Users u
 	JOIN SubscriptionTypes st ON u.SubscriptionTypeId = st.SubscriptionTypeId
 	WHERE st.Valid = true
 	GROUP BY st.SubscriptionTypeId, wkm.WorkspaceId
-	ORDER BY Subscription_Type_Revenue DESC, st.Duration ASC
+	ORDER BY Subscription_Type_Revenue DESC, st.Duration ASC;
 
 
 -- Seleciona tamanho total de anexos enviados em cada canal para fins de limpeza de armazenamento. c
@@ -20,14 +20,14 @@ FROM Attachments att
 	JOIN Messages m ON att.MessageId = m.MessageId
 	JOIN Channels c ON m.ChannelId = c.ChannelId
 	GROUP BY c.ChannelId
-	ORDER BY TotalAttachmentSize
+	ORDER BY TotalAttachmentSize;
 
 -- Seleciona os nomes de usuários que tiveram pelo menos uma mensagem no canal de id @channel_id para fins de exibição de usuários ativos na interface da plataforma. c
 SELECT c.ChannelName, u.UserName FROM Users u
 	JOIN Messages m on m.SenderUserId = u.UserId
 	JOIN Channels c on c.ChannelId = m.ChannelId
 	WHERE m.ChannelId = '0e1e2e3e-4f5f-4a6a-8b7b-c9d0e1f2a3b4'
-	GROUP BY u.UserId, c.ChannelId HAVING COUNT(distinct m.MessageId) > 0
+	GROUP BY u.UserId, c.ChannelId HAVING COUNT(distinct m.MessageId) > 0;
 
 		
 -- Seleciona os usuários da plataforma que possuem assinatura paga mas ainda não fazem parte de nenhum workspace. d
@@ -55,7 +55,7 @@ SELECT u1.UserName FROM Users u1
 						where cm.ChannelId = cm1.ChannelId
 							AND cm1.UserId = u1.UserId
 				)
-	)
+	);
 
 
 -- Visão ChannelUserMessages, que agrega todas as informações sobre o contexto das mensagens enviadas. f
@@ -98,14 +98,14 @@ SELECT ChannelName, MessageContent FROM
 		JOIN Messages m ON r.MessageId = m.MessageId
 		JOIN Channels c ON m.ChannelId = c.ChannelId
 	)
-) WHERE RowNumber = 1
+) WHERE RowNumber = 1;
 
 -- Busca, para cada usuário, quantas interações de outros usuários suas mensagens tiveram (sendo consideradas interações as respostas e reações as mensagens)
 SELECT u.UserName, COUNT(*) as interaction_count FROM Users u
 	JOIN Messages m ON m.SenderUserId = u.UserId
 	JOIN Messages tm on tm.ParentMessageId = m.MessageId
 	JOIN Reactions r on r.MessageId = m.MessageId
-	GROUP BY u.UserId
+	GROUP BY u.UserId;
 
 -- Seleciona usuários com tipo de assinatura enterprise e que são donos de workspaces, mas que têm senhas inseguras (curtas e armazenadas sem serem hasheadas no banco).
 SELECT u.UserId, u.UserName
@@ -118,7 +118,7 @@ FROM Users u
     		SELECT 1
 			FROM Workspaces w 
 				WHERE u.UserId = w.OwnerUserId
-		)
+		);
 
 -- Seleciona o top 10 de usuarios mais engajados na plataforma no ultimo dia.
 SELECT
