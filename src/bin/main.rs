@@ -47,6 +47,15 @@ enum Message {
     UpdateMessage(String),
     SendMessage,
     Logout,
+    QueryTestingPage,
+}
+
+#[derive(Default)]
+enum Page {
+    #[default]
+    LoginPage,
+    HomePage,
+    QueryTestingPage,
 }
 
 #[derive(Default)]
@@ -61,12 +70,14 @@ struct Slab {
     channels: Vec<Channel>,
     selected_channel: Option<Channel>,
     user_messages: Vec<UserMessage>,
+
+    current_page: Page,
 }
 
 impl Slab {
     fn render(&self) -> Element<Message> {
-        let screen = if self.selected_user.is_none() {
-            column![
+        let screen = match self.current_page {
+            Page::LoginPage => column![
                 text("Login").size(24),
                 text_input("Username", &self.user_name)
                     .on_input(Message::UpdateUsername)
@@ -77,55 +88,64 @@ impl Slab {
                     .secure(true),
                 button("Login")
                     .on_press(Message::TryFetchUserByLogin)
-                    .padding(10)
+                    .padding(10),
+                button("Query Testing")
+                    .on_press(Message::QueryTestingPage)
+                    .padding(10),
             ]
             .spacing(15)
-            .align_x(iced::Alignment::Center)
-        } else {
-            let selectors = row![
-                button("Logout").on_press(Message::Logout),
-                pick_list(
-                    self.workspaces.clone(),
-                    self.selected_workspace.clone(),
-                    Message::UpdateSelectedWorkspace,
-                )
-                .placeholder("Workspace")
-                .width(iced::Length::Fill),
-                pick_list(
-                    self.channels.clone(),
-                    self.selected_channel.clone(),
-                    Message::UpdateSelectedChannel,
-                )
-                .placeholder("Channel")
-                .width(iced::Fill),
-            ]
-            .spacing(10);
+            .padding(30)
+            .align_x(iced::Alignment::Center),
 
-            let message_history = scrollable(
-                Column::with_children(
-                    self.user_messages
-                        .iter()
-                        .map(|msg| text(format!("{}: {}", msg.user_name, msg.content)).into())
-                        .collect::<Vec<_>>(),
+            Page::HomePage => {
+                let selectors = row![
+                    button("Logout").on_press(Message::Logout),
+                    pick_list(
+                        self.workspaces.clone(),
+                        self.selected_workspace.clone(),
+                        Message::UpdateSelectedWorkspace,
+                    )
+                    .placeholder("Workspace")
+                    .width(iced::Length::Fill),
+                    pick_list(
+                        self.channels.clone(),
+                        self.selected_channel.clone(),
+                        Message::UpdateSelectedChannel,
+                    )
+                    .placeholder("Channel")
+                    .width(iced::Fill),
+                ]
+                .spacing(10);
+
+                let message_history = scrollable(
+                    Column::with_children(
+                        self.user_messages
+                            .iter()
+                            .map(|msg| text(format!("{}: {}", msg.user_name, msg.content)).into())
+                            .collect::<Vec<_>>(),
+                    )
+                    .spacing(5),
                 )
-                .spacing(5),
-            )
-            .height(iced::Length::Fill);
+                .height(iced::Length::Fill);
 
-            let message_input = row![
-                text_input("Type a message...", &self.user_message_input)
-                    .on_input(Message::UpdateMessage)
-                    .padding(10),
-                button(text("Send").size(16))
-                    .on_press(Message::SendMessage)
-                    .padding(10),
-            ]
-            .spacing(10)
-            .align_y(iced::Center);
+                let message_input = row![
+                    text_input("Type a message...", &self.user_message_input)
+                        .on_input(Message::UpdateMessage)
+                        .padding(10),
+                    button(text("Send").size(16))
+                        .on_press(Message::SendMessage)
+                        .padding(10),
+                ]
+                .spacing(10)
+                .align_y(iced::Center);
 
-            column![selectors, message_history, message_input]
-                .spacing(15)
-                .padding(10)
+                column![selectors, message_history, message_input]
+                    .spacing(15)
+                    .padding(10)
+            }
+            Page::QueryTestingPage => {
+                column![text!("asdf")]
+            }
         };
 
         iced::widget::container(screen)
@@ -162,6 +182,7 @@ impl Slab {
                 }
 
                 self.selected_user = user;
+                self.current_page = Page::HomePage;
 
                 Task::perform(
                     fetch_all_user_workspaces(
@@ -183,6 +204,7 @@ impl Slab {
                 self.password = "".to_string();
                 self.selected_channel = None;
                 self.selected_workspace = None;
+                self.current_page = Page::LoginPage;
                 Task::none()
             }
             Message::UpdateSelectedWorkspace(value) => {
@@ -223,7 +245,6 @@ impl Slab {
                 self.user_messages = user_messages;
                 Task::none()
             }
-
             Message::UpdateMessage(value) => {
                 self.user_message_input = value;
                 Task::none()
@@ -242,6 +263,10 @@ impl Slab {
                     ),
                     Message::FetchAllChannelUserMessages,
                 )
+            }
+            Message::QueryTestingPage => {
+                self.current_page = Page::QueryTestingPage;
+                Task::none()
             }
         }
     }
