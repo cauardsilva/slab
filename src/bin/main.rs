@@ -6,8 +6,8 @@ use iced::{
 };
 use slab::{
     Channel, User, UserMessage, Workspace, fetch_all_channel_user_messages,
-    fetch_all_user_workspaces, fetch_all_workspace_channels, fetch_user_by_login,
-    send_channel_user_message,
+    fetch_all_user_workspaces, fetch_all_workspace_channels, fetch_same_channel_users,
+    fetch_user_by_login, get_channels_storage_usage, send_channel_user_message,
 };
 use sqlx::{Pool, Postgres, postgres::PgPoolOptions};
 
@@ -47,7 +47,13 @@ enum Message {
     UpdateMessage(String),
     SendMessage,
     Logout,
-    QueryTestingPage,
+
+    // query testing page messages
+    NavigateToQueryPage,
+    FetchChannelStorageUsage,
+    FetchSameChannels(String),
+    SetQueryResult(String),
+    SetQueryInput(String),
 }
 
 #[derive(Default)]
@@ -72,6 +78,8 @@ struct Slab {
     user_messages: Vec<UserMessage>,
 
     current_page: Page,
+    query_result: Option<String>,
+    query_input: String,
 }
 
 impl Slab {
@@ -90,7 +98,7 @@ impl Slab {
                     .on_press(Message::TryFetchUserByLogin)
                     .padding(10),
                 button("Query Testing")
-                    .on_press(Message::QueryTestingPage)
+                    .on_press(Message::NavigateToQueryPage)
                     .padding(10),
             ]
             .spacing(15)
@@ -144,7 +152,30 @@ impl Slab {
                     .padding(10)
             }
             Page::QueryTestingPage => {
-                column![text!("asdf")]
+                let query_result = match &self.query_result {
+                    Some(result) => result.clone(),
+                    None => "".to_string(),
+                };
+
+                column![
+                    row![
+                        button(text("tamanho dos anexos de cada canal").size(16))
+                            .on_press(Message::FetchChannelStorageUsage)
+                            .padding(10),
+                        button(text("usuarios que estao no canal de @input").size(16))
+                            .on_press(Message::FetchSameChannels(self.query_input.clone()))
+                            .padding(10)
+                    ]
+                    .spacing(15),
+                    row![
+                        text_input("Enter query input", &self.query_input)
+                            .on_input(Message::SetQueryInput)
+                            .padding(10),
+                    ],
+                    text!("{}", query_result)
+                ]
+                .spacing(15)
+                .padding(15)
             }
         };
 
@@ -264,8 +295,24 @@ impl Slab {
                     Message::FetchAllChannelUserMessages,
                 )
             }
-            Message::QueryTestingPage => {
+            Message::NavigateToQueryPage => {
                 self.current_page = Page::QueryTestingPage;
+                Task::none()
+            }
+            Message::FetchChannelStorageUsage => Task::perform(
+                get_channels_storage_usage(POSTGRES_CONNECTION_POOL.get().unwrap()),
+                |storage_usage| Message::SetQueryResult(storage_usage.join("\n")),
+            ),
+            Message::SetQueryResult(result) => {
+                self.query_result = Some(result);
+                Task::none()
+            }
+            Message::FetchSameChannels(user_id) => Task::perform(
+                fetch_same_channel_users(POSTGRES_CONNECTION_POOL.get().unwrap(), user_id),
+                |output| Message::SetQueryResult(output.join(", ")),
+            ),
+            Message::SetQueryInput(input) => {
+                self.query_input = input;
                 Task::none()
             }
         }

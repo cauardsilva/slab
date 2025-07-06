@@ -110,3 +110,63 @@ pub async fn send_channel_user_message(
     .await
     .unwrap();
 }
+
+pub async fn get_channels_storage_usage(postgres_connection_pool: &Pool<Postgres>) -> Vec<String> {
+    let rows = sqlx::query!(
+        r#"
+        SELECT
+            c.ChannelName as channel_name,
+            SUM(OCTET_LENGTH(att.Content)) AS storage_usage
+        FROM Attachments att
+            JOIN Messages m ON att.MessageId = m.MessageId
+            JOIN Channels c ON m.ChannelId = c.ChannelId
+            GROUP BY c.ChannelId
+            ORDER BY storage_usage;
+        "#,
+    )
+    .fetch_all(postgres_connection_pool)
+    .await
+    .unwrap();
+
+    rows.iter()
+        .map(|row| {
+            format!(
+                "{} - {}",
+                row.channel_name,
+                row.storage_usage.unwrap().to_string()
+            )
+            .to_string()
+        })
+        .collect()
+}
+
+pub async fn fetch_same_channel_users(
+    postgres_connection_pool: &Pool<Postgres>,
+    user_name: String,
+) -> Vec<String> {
+    let rows = sqlx::query!(
+        r#"
+        SELECT u1.UserName as user_name FROM Users u1
+        WHERE NOT EXISTS (
+            SELECT 1 FROM Channels c
+            JOIN ChannelMemberships cm ON c.ChannelId = cm.ChannelId
+            JOIN Users u2 ON u2.UserId = cm.UserId
+            WHERE c.ChannelType = 'public'
+                AND u2.UserName = $1
+                AND NOT EXISTS (
+                    SELECT 1 FROM ChannelMemberships cm1
+                    WHERE cm.ChannelId = cm1.ChannelId
+                        AND cm1.UserId = u1.UserId
+                )
+        );
+        "#,
+        user_name
+    )
+    .fetch_all(postgres_connection_pool)
+    .await
+    .unwrap();
+
+    rows.iter()
+        .map(|row| format!("{}", row.user_name).to_string())
+        .collect()
+}
