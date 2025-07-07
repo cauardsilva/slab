@@ -7,7 +7,9 @@ use iced::{
 use slab::{
     Channel, User, UserMessage, Workspace, create_channel, create_workspace,
     fetch_all_channel_user_messages, fetch_all_user_workspaces, fetch_all_workspace_channels,
-    fetch_same_channel_users, fetch_user_by_login, get_channels_storage_usage,
+    fetch_all_workspaces_revenue_by_subscription_type, fetch_same_channel_users,
+    fetch_user_by_login, fetch_users_in_channel_with_at_least_one_message,
+    fetch_users_with_subscription_not_in_any_workspace, get_channels_storage_usage,
     send_channel_user_message,
 };
 use sqlx::{Pool, Postgres, postgres::PgPoolOptions};
@@ -56,9 +58,12 @@ enum Message {
     CreateChannel,
 
     // query testing page messages
-    NavigateToQueryPage,
+    NavigateToAdminPanel,
     FetchChannelStorageUsage,
     FetchSameChannels(String),
+    FetchAllWorkspacesRevenueBySubscriptionType,
+    FetchUsersInChannelWithAtLeastOneMessage,
+    FetchUsersWithSubscriptionNotInAnyWorkspace,
     SetQueryResult(String),
     SetQueryInput(String),
 }
@@ -68,7 +73,7 @@ enum Page {
     #[default]
     LoginPage,
     HomePage,
-    QueryTestingPage,
+    AdminPanel,
 }
 
 #[derive(Default)]
@@ -106,8 +111,8 @@ impl Slab {
                 button("Login")
                     .on_press(Message::TryFetchUserByLogin)
                     .padding(10),
-                button("Query Testing")
-                    .on_press(Message::NavigateToQueryPage)
+                button("Admin Panel")
+                    .on_press(Message::NavigateToAdminPanel)
                     .padding(10),
             ]
             .spacing(15)
@@ -170,7 +175,7 @@ impl Slab {
                     .spacing(15)
                     .padding(10)
             }
-            Page::QueryTestingPage => {
+            Page::AdminPanel => {
                 let query_result = match &self.query_result {
                     Some(result) => result.clone(),
                     None => "".to_string(),
@@ -178,11 +183,20 @@ impl Slab {
 
                 column![
                     row![
-                        button(text("tamanho dos anexos de cada canal").size(16))
+                        button(text("Channels total sent attachments size").size(16))
                             .on_press(Message::FetchChannelStorageUsage)
                             .padding(10),
-                        button(text("usuarios que estao no canal de @input").size(16))
+                        button(text("Users at same channels as input user").size(16))
                             .on_press(Message::FetchSameChannels(self.query_input.clone()))
+                            .padding(10),
+                        button(text("Workspaces revenue by subscription type").size(16))
+                            .on_press(Message::FetchAllWorkspacesRevenueBySubscriptionType)
+                            .padding(10),
+                        button(text("Users with at least one message at input channel").size(16))
+                            .on_press(Message::FetchUsersInChannelWithAtLeastOneMessage)
+                            .padding(10),
+                        button(text("Users with subscription not in any workspace").size(16))
+                            .on_press(Message::FetchUsersWithSubscriptionNotInAnyWorkspace)
                             .padding(10)
                     ]
                     .spacing(15),
@@ -315,8 +329,8 @@ impl Slab {
                     Message::FetchAllChannelUserMessages,
                 )
             }
-            Message::NavigateToQueryPage => {
-                self.current_page = Page::QueryTestingPage;
+            Message::NavigateToAdminPanel => {
+                self.current_page = Page::AdminPanel;
                 Task::none()
             }
             Message::FetchChannelStorageUsage => Task::perform(
@@ -380,6 +394,25 @@ impl Slab {
                     move |_| Message::UpdateSelectedWorkspace(current_workspace.clone()),
                 )
             }
+            Message::FetchAllWorkspacesRevenueBySubscriptionType => Task::perform(
+                fetch_all_workspaces_revenue_by_subscription_type(
+                    POSTGRES_CONNECTION_POOL.get().unwrap(),
+                ),
+                Message::SetQueryResult,
+            ),
+            Message::FetchUsersInChannelWithAtLeastOneMessage => Task::perform(
+                fetch_users_in_channel_with_at_least_one_message(
+                    POSTGRES_CONNECTION_POOL.get().unwrap(),
+                    self.query_input.clone(),
+                ),
+                Message::SetQueryResult,
+            ),
+            Message::FetchUsersWithSubscriptionNotInAnyWorkspace => Task::perform(
+                fetch_users_with_subscription_not_in_any_workspace(
+                    POSTGRES_CONNECTION_POOL.get().unwrap(),
+                ),
+                Message::SetQueryResult,
+            ),
         }
     }
 }

@@ -243,3 +243,92 @@ pub async fn create_channel(
     .await
     .unwrap();
 }
+
+pub async fn fetch_all_workspaces_revenue_by_subscription_type(
+    postgres_connection_pool: &Pool<Postgres>,
+) -> String {
+    let revenues = sqlx::query!(
+        r#"
+        SELECT
+            st.SubscriptionTypeName as subscription_type_name,
+            WorkspaceName AS workspace_name,
+            SUM(st.Price) AS subscription_type_revenue,
+            st.Duration AS subscription_duration
+        FROM Users u
+            JOIN WorkspaceMemberships wkm ON u.UserId = wkm.UserId
+            JOIN SubscriptionTypes st ON u.SubscriptionTypeId = st.SubscriptionTypeId
+            JOIN Workspaces USING (WorkspaceId)
+            WHERE st.Valid = true
+            GROUP BY st.SubscriptionTypeId, WorkspaceName
+            ORDER BY workspace_name ASC, subscription_type_name ASC, subscription_type_revenue DESC, st.Duration ASC"#
+    )
+    .fetch_all(postgres_connection_pool)
+    .await
+    .unwrap();
+
+    revenues
+        .iter()
+        .map(|value| {
+            format!(
+                "{}: R${:.2} every {} days with {} subscription",
+                value.workspace_name,
+                value.subscription_type_revenue.clone().unwrap_or_default(),
+                value.subscription_duration.months * 30 + value.subscription_duration.days,
+                value.subscription_type_name
+            )
+        })
+        .collect::<Vec<String>>()
+        .join("\n")
+}
+
+pub async fn fetch_users_in_channel_with_at_least_one_message(
+    postgres_connection_pool: &Pool<Postgres>,
+    channel_name: String,
+) -> String {
+    sqlx::query!(
+        r#"
+        SELECT c.ChannelName AS channel_name, u.UserName AS user_name FROM Users u
+        JOIN Messages m on m.SenderUserId = u.UserId
+        JOIN Channels c on c.ChannelId = m.ChannelId
+        WHERE c.ChannelName = $1
+        GROUP BY u.UserId, c.ChannelId HAVING COUNT(distinct m.MessageId) > 0"#,
+        channel_name
+    )
+    .fetch_all(postgres_connection_pool)
+    .await
+    .unwrap()
+    .into_iter()
+    .map(|value| value.user_name)
+    .collect::<Vec<String>>()
+    .join("\n")
+}
+
+pub async fn fetch_users_with_subscription_not_in_any_workspace(
+    postgres_connection_pool: &Pool<Postgres>,
+) -> String {
+    sqlx::query!(
+        r#"
+        SELECT u.UserName AS user_name, st.SubscriptionTypeName AS subscription_type_name
+        FROM Users u
+            JOIN SubscriptionTypes st ON u.SubscriptionTypeId = st.SubscriptionTypeId
+            WHERE st.Price > 0
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM WorkspaceMemberships wkm
+                        WHERE wkm.UserId = u.UserId
+                )
+            ORDER BY u.UserName"#
+    )
+    .fetch_all(postgres_connection_pool)
+    .await
+    .unwrap()
+    .into_iter()
+    .map(|value| {
+        format!(
+            "{} with {} subscription",
+            value.user_name, value.subscription_type_name
+        )
+    })
+    .collect::<Vec<String>>()
+    .join("\n")
+}
