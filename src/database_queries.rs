@@ -1,4 +1,4 @@
-use sqlx::{Pool, Postgres};
+use sqlx::{Error, Pool, Postgres};
 use uuid::Uuid;
 
 use crate::{Channel, User, UserMessage, Workspace};
@@ -169,4 +169,77 @@ pub async fn fetch_same_channel_users(
     rows.iter()
         .map(|row| format!("{}", row.user_name).to_string())
         .collect()
+}
+
+pub async fn create_workspace(
+    postgres_connection_pool: &Pool<Postgres>,
+    workspace_name: String,
+    owner_user_id: Uuid,
+) -> Result<(), String> {
+    let workspace_id = Uuid::new_v4();
+
+    if let Err(Error::Database(_)) = sqlx::query!(
+        r#"
+        INSERT INTO postgres.public.Workspaces
+        VALUES ($1, $2, $3, NOW())"#,
+        workspace_id,
+        workspace_name,
+        owner_user_id
+    )
+    .execute(postgres_connection_pool)
+    .await
+    {
+        return Err("Exceeded max created workspaces limit".to_string());
+    }
+
+    sqlx::query!(
+        r#"
+        INSERT INTO postgres.public.WorkspaceMemberships
+        VALUES ($1, $2)"#,
+        workspace_id,
+        owner_user_id
+    )
+    .execute(postgres_connection_pool)
+    .await
+    .unwrap();
+
+    Ok(())
+}
+
+pub async fn create_channel(
+    postgres_connection_pool: &Pool<Postgres>,
+    channel_name: String,
+    workspace_id: Uuid,
+    is_public: bool,
+    owner_user_id: Uuid,
+) {
+    let channel_id = Uuid::new_v4();
+    let channel_type = match is_public {
+        true => "public",
+        false => "private",
+    };
+
+    sqlx::query!(
+        r#"
+        INSERT INTO postgres.public.Channels
+        VALUES ($1, $2, $3, $4, NOW())"#,
+        channel_id,
+        workspace_id,
+        channel_type,
+        channel_name,
+    )
+    .execute(postgres_connection_pool)
+    .await
+    .unwrap();
+
+    sqlx::query!(
+        r#"
+        INSERT INTO postgres.public.ChannelMemberships
+        VALUES ($1, $2)"#,
+        channel_id,
+        owner_user_id
+    )
+    .execute(postgres_connection_pool)
+    .await
+    .unwrap();
 }

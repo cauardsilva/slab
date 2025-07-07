@@ -5,9 +5,10 @@ use iced::{
     widget::{Column, button, column, pick_list, row, scrollable, text, text_input},
 };
 use slab::{
-    Channel, User, UserMessage, Workspace, fetch_all_channel_user_messages,
-    fetch_all_user_workspaces, fetch_all_workspace_channels, fetch_same_channel_users,
-    fetch_user_by_login, get_channels_storage_usage, send_channel_user_message,
+    Channel, User, UserMessage, Workspace, create_channel, create_workspace,
+    fetch_all_channel_user_messages, fetch_all_user_workspaces, fetch_all_workspace_channels,
+    fetch_same_channel_users, fetch_user_by_login, get_channels_storage_usage,
+    send_channel_user_message,
 };
 use sqlx::{Pool, Postgres, postgres::PgPoolOptions};
 
@@ -39,14 +40,20 @@ enum Message {
     UpdateSelectedWorkspace(Workspace),
     UpdateSelectedChannel(Channel),
     TryFetchUserByLogin,
-    FetchAllWorkspaces(Option<User>),
+    TryFetchUserByLoginResult(Option<User>),
+    FetchAllWorkspaces,
     FetchAllWorkspacesResult(Vec<Workspace>),
     UpdateSelectedWorkspaceResult(Vec<Channel>),
     FetchAllChannelUserMessages(()),
     FetchAllChannelUserMessagesResult(Vec<UserMessage>),
-    UpdateMessage(String),
+    UpdateMessageInput(String),
+    UpdateWorkspaceInput(String),
+    UpdateChannelInput(String),
     SendMessage,
     Logout,
+    CreateWorkspace,
+    CreateWorkspaceResult(Result<(), String>),
+    CreateChannel,
 
     // query testing page messages
     NavigateToQueryPage,
@@ -69,6 +76,8 @@ struct Slab {
     user_name: String,
     password: String,
     user_message_input: String,
+    user_workspace_input: String,
+    user_channel_input: String,
 
     selected_user: Option<User>,
     workspaces: Vec<Workspace>,
@@ -103,7 +112,7 @@ impl Slab {
             ]
             .spacing(15)
             .padding(30)
-            .align_x(iced::Alignment::Center),
+            .align_x(iced::Center),
 
             Page::HomePage => {
                 let selectors = row![
@@ -125,6 +134,16 @@ impl Slab {
                 ]
                 .spacing(10);
 
+                let creators = row![
+                    button("Create workspace").on_press(Message::CreateWorkspace),
+                    text_input("Workspace", &self.user_workspace_input)
+                        .on_input(Message::UpdateWorkspaceInput),
+                    button("Create channel").on_press(Message::CreateChannel),
+                    text_input("Channel", &self.user_channel_input)
+                        .on_input(Message::UpdateChannelInput)
+                ]
+                .spacing(10);
+
                 let message_history = scrollable(
                     Column::with_children(
                         self.user_messages
@@ -138,7 +157,7 @@ impl Slab {
 
                 let message_input = row![
                     text_input("Type a message...", &self.user_message_input)
-                        .on_input(Message::UpdateMessage)
+                        .on_input(Message::UpdateMessageInput)
                         .padding(10),
                     button(text("Send").size(16))
                         .on_press(Message::SendMessage)
@@ -147,7 +166,7 @@ impl Slab {
                 .spacing(10)
                 .align_y(iced::Center);
 
-                column![selectors, message_history, message_input]
+                column![selectors, message_history, creators, message_input]
                     .spacing(15)
                     .padding(10)
             }
@@ -203,9 +222,9 @@ impl Slab {
                     self.user_name.clone(),
                     self.password.clone(),
                 ),
-                Message::FetchAllWorkspaces,
+                Message::TryFetchUserByLoginResult,
             ),
-            Message::FetchAllWorkspaces(user) => {
+            Message::TryFetchUserByLoginResult(user) => {
                 if user.is_none() {
                     self.user_name = "Wrong credentials!".to_string();
                     self.password = "".to_string();
@@ -215,14 +234,15 @@ impl Slab {
                 self.selected_user = user;
                 self.current_page = Page::HomePage;
 
-                Task::perform(
-                    fetch_all_user_workspaces(
-                        POSTGRES_CONNECTION_POOL.get().unwrap(),
-                        self.user_name.clone(),
-                    ),
-                    Message::FetchAllWorkspacesResult,
-                )
+                Task::done(Message::FetchAllWorkspaces)
             }
+            Message::FetchAllWorkspaces => Task::perform(
+                fetch_all_user_workspaces(
+                    POSTGRES_CONNECTION_POOL.get().unwrap(),
+                    self.user_name.clone(),
+                ),
+                Message::FetchAllWorkspacesResult,
+            ),
             Message::FetchAllWorkspacesResult(workspaces) => {
                 self.workspaces = workspaces;
                 self.channels = vec![];
@@ -276,7 +296,7 @@ impl Slab {
                 self.user_messages = user_messages;
                 Task::none()
             }
-            Message::UpdateMessage(value) => {
+            Message::UpdateMessageInput(value) => {
                 self.user_message_input = value;
                 Task::none()
             }
@@ -314,6 +334,51 @@ impl Slab {
             Message::SetQueryInput(input) => {
                 self.query_input = input;
                 Task::none()
+            }
+            Message::UpdateWorkspaceInput(value) => {
+                self.user_workspace_input = value;
+                Task::none()
+            }
+            Message::UpdateChannelInput(value) => {
+                self.user_channel_input = value;
+                Task::none()
+            }
+            Message::CreateWorkspace => Task::perform(
+                create_workspace(
+                    POSTGRES_CONNECTION_POOL.get().unwrap(),
+                    self.user_workspace_input.clone(),
+                    self.selected_user.clone().unwrap().user_id,
+                ),
+                Message::CreateWorkspaceResult,
+            ),
+            Message::CreateWorkspaceResult(value) => {
+                if let Err(error) = value {
+                    self.user_workspace_input = error;
+                    return Task::none();
+                }
+
+                Task::done(Message::FetchAllWorkspaces)
+            }
+            Message::CreateChannel => {
+                let current_workspace = match self.selected_workspace.clone() {
+                    Some(current_workspace) => current_workspace,
+                    None => {
+                        self.user_channel_input =
+                            "Select a workspace before creating a channel".to_string();
+                        return Task::none();
+                    }
+                };
+
+                Task::perform(
+                    create_channel(
+                        POSTGRES_CONNECTION_POOL.get().unwrap(),
+                        self.user_channel_input.clone(),
+                        self.selected_workspace.clone().unwrap().workspace_id,
+                        true,
+                        self.selected_user.clone().unwrap().user_id,
+                    ),
+                    move |_| Message::UpdateSelectedWorkspace(current_workspace.clone()),
+                )
             }
         }
     }
