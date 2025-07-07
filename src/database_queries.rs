@@ -24,18 +24,6 @@ pub async fn fetch_user_by_login(
     .unwrap()
 }
 
-// async fn fetch_all_users() -> Vec<User> {
-//     sqlx::query_as!(
-//         User,
-//         r#"
-//         SELECT UserName AS user_name
-//         FROM postgres.public.Users"#
-//     )
-//     .fetch_all(POSTGRES_CONNECTION_POOL.get().unwrap())
-//     .await
-//     .unwrap_or_default()
-// }
-
 pub async fn fetch_all_user_workspaces(
     postgres_connection_pool: &Pool<Postgres>,
     user_name: String,
